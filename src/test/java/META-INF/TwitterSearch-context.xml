@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+	xmlns:int="http://www.springframework.org/schema/integration"
+	xmlns:int-twitter="http://www.springframework.org/schema/integration/twitter"
+	xmlns:int-amqp="http://www.springframework.org/schema/integration/amqp"
+	xmlns:rabbit="http://www.springframework.org/schema/rabbit"
+	xmlns:int-stream="http://www.springframework.org/schema/integration/stream"
+    xmlns:mvc="http://www.springframework.org/schema/mvc"	
+	xmlns:context="http://www.springframework.org/schema/context"
+	
+	xsi:schemaLocation="http://www.springframework.org/schema/integration/amqp http://www.springframework.org/schema/integration/amqp/spring-integration-amqp.xsd
+    	http://www.springframework.org/schema/mvc http://www.springframework.org/schema/mvc/spring-mvc-3.0.xsd
+		http://www.springframework.org/schema/integration http://www.springframework.org/schema/integration/spring-integration.xsd
+		http://www.springframework.org/schema/integration/stream http://www.springframework.org/schema/integration/stream/spring-integration-stream.xsd
+		http://www.springframework.org/schema/rabbit http://www.springframework.org/schema/rabbit/spring-rabbit.xsd
+		http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd
+		http://www.springframework.org/schema/integration/twitter http://www.springframework.org/schema/integration/twitter/spring-integration-twitter.xsd
+		http://www.springframework.org/schema/integration/stream http://www.springframework.org/schema/integration/stream/spring-integration-stream.xsd
+		http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context.xsd"
+		>
+	
+
+
+	<context:property-placeholder location="classpath:oauth.properties"/>
+	
+    <context:component-scan base-package="com.rabbitmq.cftutorial.simple"/>
+    <mvc:annotation-driven/>
+	
+
+	<!-- As of Twitter API version 1.1, users must be authenticated to perform searches -->
+
+	<bean id="twitterTemplate"
+		class="org.springframework.social.twitter.api.impl.TwitterTemplate">
+		<constructor-arg value="${twitter.oauth.consumerKey}" />
+		<constructor-arg value="${twitter.oauth.consumerSecret}" />
+		<constructor-arg value="${twitter.oauth.accessToken}" />
+		<constructor-arg value="${twitter.oauth.accessTokenSecret}" />
+	</bean>
+
+	<int-twitter:search-inbound-channel-adapter id="searchAdapter" channel="sourceExtractor"
+		query="#CloudFoundry OR CloudFoundry" twitter-template="twitterTemplate">
+		<int:poller fixed-rate="3000" max-messages-per-poll="5" />
+	</int-twitter:search-inbound-channel-adapter>
+
+	<int:transformer input-channel="sourceExtractor" output-channel="toRabbit" expression="payload.getText()"/>
+
+	<int:channel id="toRabbit" />
+
+	<int-amqp:outbound-channel-adapter
+		channel="toRabbit" amqp-template="amqpTemplate" exchange-name="ingest.exchange"
+		routing-key="ingest.binding" />
+
+
+	<int-amqp:inbound-channel-adapter channel="fromRabbit"
+		queue-names="ingest.queue" connection-factory="connectionFactory" />
+
+	<int:channel id="fromRabbit">
+		<int:interceptors>
+			<int:wire-tap channel="loggingChannel" />
+		</int:interceptors>
+	</int:channel>
+
+	<int-stream:stdout-channel-adapter id="consoleOut" channel="fromRabbit"
+		append-newline="true" />
+
+	<int:logging-channel-adapter id="loggingChannel" log-full-message="true"
+		level="INFO" />
+
+	<!-- Infrastructure -->
+
+	<rabbit:connection-factory id="connectionFactory" />
+
+	<rabbit:template id="amqpTemplate" connection-factory="connectionFactory" />
+
+	<rabbit:admin connection-factory="connectionFactory" />
+
+	<rabbit:queue name="ingest.queue" />
+
+	<rabbit:direct-exchange name="ingest.exchange">
+		<rabbit:bindings>
+			<rabbit:binding queue="ingest.queue" key="ingest.binding" />
+		</rabbit:bindings>
+	</rabbit:direct-exchange>
+
+	
+
+</beans>

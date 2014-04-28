@@ -1,0 +1,9 @@
+---
+applications:
+- name: twitter-stream-fm
+  memory: 512M 
+  instances: 1
+  host: twitter-stream-fm
+  path: ./twitter-streaming.war
+  services:
+    - myrabbit
